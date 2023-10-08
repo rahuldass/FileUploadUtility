@@ -68,7 +68,7 @@ public class DataService
         }
     }
 
-    public List<FileMetadataMapper> GetFileMetadataToChunk()
+    public List<FileMetadataMapper> GetExistingChunksInfo()
     {
         // const string rawSql = @"select * from (Select FileId, FilePath, SUM(IsEndOfFile) as ST, Count(IsEndOfFile) 
         //                         as CT from FileMetadata GROUP BY FileId, FilePath) as FD";
@@ -80,6 +80,37 @@ public class DataService
         {
             dbConnection.Open();
             return dbConnection.Query<FileMetadataMapper>(rawSql).ToList();
+        }
+    }
+
+    public List<FileMetadata> GetPendingChunksInfo()
+    {
+        // const string rawSql = @"select * from (Select FileId, FilePath, SUM(IsEndOfFile) as ST, Count(IsEndOfFile) 
+        //                         as CT from FileMetadata GROUP BY FileId, FilePath) as FD";
+
+        const string rawSql = @"Select * from FileMetadata WHERE Status = 'Pending' ORDER BY FileId, Sequence";
+
+        using IDbConnection dbConnection = new SqliteConnection(_connectionString);
+        {
+            dbConnection.Open();
+            return dbConnection.Query<FileMetadata>(rawSql).ToList();
+        }
+    }
+
+    public Dictionary<string, string> GetBlocksToCommit()
+    {
+        const string rawSql = @"
+                    select BlockId as [Key], F.FileId AS [Value] from FileMetadata as F 
+                    inner join (select FileId, Count(FileId) as Total from FileMetadata
+                    where Status == 'Staged' GROUP By FileId Having Count(FileId) = NumberOfChunks) as T 
+                    On F.FileId = T.FileId
+                    ORDER BY F.FileId, F.Sequence";
+
+        using IDbConnection dbConnection = new SqliteConnection(_connectionString);
+        {
+            dbConnection.Open();
+            return dbConnection.Query<(string Key, string Value)>(rawSql)
+                .ToDictionary(pair => pair.Key, pair => pair.Value);
         }
     }
 
@@ -127,14 +158,14 @@ public class DataService
         }
     }
 
-    public List<string> GetStagedBlockIds()
+    public List<FileMetadata> GetStagedBlocks()
     {
         const string rawSql = @"SELECT * FROM FileMetadata WHERE Status = @Status ORDER BY Sequence";
 
         using IDbConnection dbConnection = new SqliteConnection(_connectionString);
         {
             dbConnection.Open();
-            return dbConnection.Query<string>(rawSql, new { Status = Status.Staged.ToString() })
+            return dbConnection.Query<FileMetadata>(rawSql, new { Status = Status.Staged.ToString() })
                 .ToList();
         }
     }

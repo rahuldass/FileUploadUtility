@@ -36,18 +36,17 @@ public class Consumer
         {
             await semaphoreSlim.WaitAsync();
 
-            //var blockIds = new List<string>();
-            var blockIds = _dataService.GetStagedBlockIds();
-            var blockBlobClient = containerClient.GetBlockBlobClient(Guid.NewGuid() + "-" + chunk.FileName);
+            var blockBlobClient = containerClient.GetBlockBlobClient(chunk.FileId + "-" + chunk.FileName);
+
             try
             {
-                Console.WriteLine($"Staging {chunk.FileName}");
-                await StageBlocksAsync(blockBlobClient, chunk, blockIds);
+                //  Stage chunk to Azure server
+                await StageBlocksAsync(blockBlobClient, chunk);
             }
             catch (RequestFailedException ex)
             {
                 Console.WriteLine($"Error while staging block {chunk.Id}: {ex.Message}");
-                var retryCount = await RetryStagingFailedBlocks(blockBlobClient, chunk, blockIds);
+                var retryCount = await RetryStagingFailedBlocks(blockBlobClient, chunk);
                 if (retryCount == 0)
                 {
                     //  If all retries failed update status to "Failed"
@@ -57,35 +56,31 @@ public class Consumer
             }
 
             //  Commit the blocks to blob
-            if (blockBlobClient != null)
-            {
-                var stagedBlockIds = _dataService.GetStagedBlockIds();
-                //unCommittedBlockIds.AddRange(blockIds);
-                Console.WriteLine($"After - {blockIds.Count()}");
-                Console.WriteLine("Commiting blocks...");
-                await blockBlobClient.CommitBlockListAsync(blockIds);
-                _dataService.UpdateChunkStatusByFileName(chunk.FileName, Status.Finished.ToString());
-            }
+            // if (blockBlobClient != null)
+            // {
+            //     await blockBlobClient.CommitBlockListAsync(blockIds);
+            //     _dataService.UpdateChunkStatusByFileName(chunk.FileName, Status.Finished.ToString());
+            // }
 
             semaphoreSlim.Release();
         }
     }
 
-    private async Task StageBlocksAsync(BlockBlobClient blockBlobClient, FileMetadata fileMetadata,
-        List<string> blockIds)
+    private async Task StageBlocksAsync(BlockBlobClient blockBlobClient, FileMetadata chunk)
     {
-        //  Stage chunk to Azure server
-        using var memoryStream = new MemoryStream(fileMetadata.Data);
-        var blockId = Convert.ToBase64String(BitConverter.GetBytes(fileMetadata.Id));
+        using var memoryStream = new MemoryStream(chunk.Data);
+        var blockId = Convert.ToBase64String(BitConverter.GetBytes(chunk.Id));
+
+        var threadId = Thread.CurrentThread.ManagedThreadId;
+        Console.WriteLine(
+            $"Staging chunk of File - {chunk.FileName} with Chunk Id - {chunk.Id} by Thread Id - {threadId}");
         await blockBlobClient.StageBlockAsync(blockId, memoryStream);
-        blockIds.Add(blockId);
 
         //  Update blockId and status to "Staged"
-        _dataService.UpdateChunkById(fileMetadata.Id, Status.Staged.ToString(), blockId);
+        _dataService.UpdateChunkById(chunk.Id, Status.Staged.ToString(), blockId);
     }
 
-    private async Task<int> RetryStagingFailedBlocks(BlockBlobClient blockBlobClient, FileMetadata fileMetadata,
-        List<string> blockIds)
+    private async Task<int> RetryStagingFailedBlocks(BlockBlobClient blockBlobClient, FileMetadata chunk)
     {
         var retryCount = 3;
         while (retryCount > 0)
@@ -93,7 +88,7 @@ public class Consumer
             await Task.Delay(TimeSpan.FromSeconds(1));
             try
             {
-                await StageBlocksAsync(blockBlobClient, fileMetadata, blockIds);
+                await StageBlocksAsync(blockBlobClient, chunk);
                 break;
             }
             catch (RequestFailedException retryEx)

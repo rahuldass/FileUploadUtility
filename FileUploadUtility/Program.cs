@@ -19,19 +19,29 @@ public static class Program
 
         // Start producer and consumer task
         var producer = new Producer(files, configuration, dataService, uploadQueue);
-        var producerTask = Task.Run(async () => { await producer.Start(); });
+        var producerTask = Task.Run(async () =>
+        {
+            await producer.Start();
+            Console.WriteLine("Producer started");
+        });
 
         //  Start consumer task
-        // var consumer = new Consumer(configuration, dataService, uploadQueue);
-        // var consumerTask = Task.Run(async () =>
-        // {
-        //     await Task.Delay(TimeSpan.FromSeconds(4));
-        //     await consumer.Start();
-        //     Console.WriteLine("Consumer started");
-        // });
+        var consumer = new Consumer(configuration, dataService, uploadQueue);
+        var consumerTask = Task.Run(async () =>
+        {
+            await Task.Delay(TimeSpan.FromSeconds(4));
+            await consumer.Start();
+            Console.WriteLine("Consumer started");
+        });
+
+        var commitBklocks = Task.Run(async () =>
+        {
+            var pendingData = dataService.GetBlocksToCommit();
+            Console.WriteLine(pendingData.Count());
+        });
 
         //Thread.Sleep(5000);
-        await Task.WhenAll(producerTask);
+        await Task.WhenAll(producerTask, consumerTask, commitBklocks);
         Console.WriteLine("File uploaded successfully!");
     }
 
