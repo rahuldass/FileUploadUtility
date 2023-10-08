@@ -6,8 +6,9 @@ public class FileMetadata
     {
     }
 
-    public FileMetadata(byte[] data, long offset, long length, string status, int sequence, string fileId, string fileName,
-        string filePath, bool isEndOfFile, string blockId)
+    public FileMetadata(byte[] data, long offset, long length, string status, int sequence, string fileId,
+        string fileName,
+        string filePath, bool isEndOfFile, string blockId, int numberOfChunks)
     {
         Data = data;
         Offset = offset;
@@ -19,6 +20,7 @@ public class FileMetadata
         BlockId = blockId;
         FileName = fileName;
         FilePath = filePath;
+        NumberOfChunks = numberOfChunks;
     }
 
     public int Id { get; set; }
@@ -34,6 +36,7 @@ public class FileMetadata
 
     // Populated after staging the chunk
     public string BlockId { get; set; }
+    public int NumberOfChunks { get; set; }
 }
 
 public enum Status
@@ -41,5 +44,6 @@ public enum Status
     Pending,
     Finished,
     Failed,
-    Staged
+    Staged,
+    Committed
 }

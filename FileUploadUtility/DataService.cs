@@ -37,15 +37,18 @@ public class DataService
                 FileName TEXT,
                 FilePath TEXT,
                 IsEndOfFile INTEGER,
-                BlockId TEXT
+                BlockId TEXT,
+                NumberOfChunks INTEGER
             )");
     }
 
     public void InsertFileMetadata(FileMetadata fileMetadata)
     {
         const string rawSql =
-            @"INSERT INTO FileMetadata (Data, Offset, Length, Status, Sequence, FileId, FileName, FilePath, IsEndOfFile, BlockId) 
-                                VALUES (@Data, @Offset, @Length, @Status, @Sequence, @FileId, @FileName, @FilePath, @IsEndOfFile, @BlockId)";
+            @"INSERT INTO FileMetadata (Data, Offset, Length, Status, Sequence, FileId, 
+                                        FileName, FilePath, IsEndOfFile, BlockId, NumberOfChunks) 
+                                VALUES (@Data, @Offset, @Length, @Status, @Sequence, @FileId, 
+                                        @FileName, @FilePath, @IsEndOfFile, @BlockId, @NumberOfChunks)";
 
         using IDbConnection dbConnection = new SqliteConnection(_connectionString);
         {
@@ -62,6 +65,21 @@ public class DataService
         {
             dbConnection.Open();
             return dbConnection.Query<FileMetadata>(rawSql, new { Status = status }).ToList();
+        }
+    }
+
+    public List<FileMetadataMapper> GetFileMetadataToChunk()
+    {
+        // const string rawSql = @"select * from (Select FileId, FilePath, SUM(IsEndOfFile) as ST, Count(IsEndOfFile) 
+        //                         as CT from FileMetadata GROUP BY FileId, FilePath) as FD";
+
+        const string rawSql = @"Select FileId, FilePath, SUM(IsEndOfFile) as IsEndOfFile, Count(IsEndOfFile) 
+                                as NumberOfChunks from FileMetadata GROUP BY FileId, FilePath";
+
+        using IDbConnection dbConnection = new SqliteConnection(_connectionString);
+        {
+            dbConnection.Open();
+            return dbConnection.Query<FileMetadataMapper>(rawSql).ToList();
         }
     }
 
@@ -109,25 +127,25 @@ public class DataService
         }
     }
 
-    public List<string> GetUnCommittedBlockIdsByFileName(string fileName)
+    public List<string> GetStagedBlockIds()
     {
-        const string rawSql = @"SELECT BlockId FROM FileMetadata WHERE FileName = @FileName AND Status = @Status";
+        const string rawSql = @"SELECT * FROM FileMetadata WHERE Status = @Status ORDER BY Sequence";
 
         using IDbConnection dbConnection = new SqliteConnection(_connectionString);
         {
             dbConnection.Open();
-            return dbConnection.Query<string>(rawSql, new { FileName = fileName, Status = Status.Staged.ToString() })
+            return dbConnection.Query<string>(rawSql, new { Status = Status.Staged.ToString() })
                 .ToList();
         }
     }
 
-    public void DeleteChunk(string fileName)
+    public void DeleteCommittedChunk()
     {
-        const string rawSql = @"DELETE FROM FileMetadata WHERE FileName = @FileName";
+        const string rawSql = @"DELETE FROM FileMetadata WHERE Status = @Status";
         using IDbConnection dbConnection = new SqliteConnection(_connectionString);
         {
             dbConnection.Open();
-            dbConnection.Execute(rawSql, new { FileName = fileName });
+            dbConnection.Execute(rawSql, new { Status = Status.Finished.ToString() });
         }
     }
 }

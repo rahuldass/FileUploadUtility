@@ -32,43 +32,43 @@ public class Consumer
 
         var semaphoreSlim = new SemaphoreSlim(4);
 
-        //while (_uploadQueue.TryTake(out var chunk))
-        //{
-        //    await semaphoreSlim.WaitAsync();
+        while (_uploadQueue.TryTake(out var chunk))
+        {
+            await semaphoreSlim.WaitAsync();
 
-        //    //var blockIds = new List<string>();
-        //    var blockIds = _dataService.GetUnCommittedBlockIdsByFileName(chunk.FileName);
-        //    var blockBlobClient = containerClient.GetBlockBlobClient(Guid.NewGuid() + "-" + chunk.FileName);
-        //    try
-        //    {
-        //        Console.WriteLine($"Staging {chunk.FileName}");
-        //        await StageBlocksAsync(blockBlobClient, chunk, blockIds);
-        //    }
-        //    catch (RequestFailedException ex)
-        //    {
-        //        Console.WriteLine($"Error while staging block {chunk.Id}: {ex.Message}");
-        //        var retryCount = await RetryStagingFailedBlocks(blockBlobClient, chunk, blockIds);
-        //        if (retryCount == 0)
-        //        {
-        //            //  If all retries failed update status to "Failed"
-        //            _dataService.UpdateChunkStatusById(chunk.Id, Status.Failed.ToString());
-        //            throw;
-        //        }
-        //    }
+            //var blockIds = new List<string>();
+            var blockIds = _dataService.GetStagedBlockIds();
+            var blockBlobClient = containerClient.GetBlockBlobClient(Guid.NewGuid() + "-" + chunk.FileName);
+            try
+            {
+                Console.WriteLine($"Staging {chunk.FileName}");
+                await StageBlocksAsync(blockBlobClient, chunk, blockIds);
+            }
+            catch (RequestFailedException ex)
+            {
+                Console.WriteLine($"Error while staging block {chunk.Id}: {ex.Message}");
+                var retryCount = await RetryStagingFailedBlocks(blockBlobClient, chunk, blockIds);
+                if (retryCount == 0)
+                {
+                    //  If all retries failed update status to "Failed"
+                    _dataService.UpdateChunkStatusById(chunk.Id, Status.Failed.ToString());
+                    throw;
+                }
+            }
 
-        //    //  Commit the blocks to blob
-        //    if (blockBlobClient != null)
-        //    {
-        //        var unCommittedBlockIds = _dataService.GetUnCommittedBlockIdsByFileName(chunk.FileName);
-        //        //unCommittedBlockIds.AddRange(blockIds);
-        //        Console.WriteLine($"After - {blockIds.Count()}");
-        //        Console.WriteLine("Commiting blocks...");
-        //        await blockBlobClient.CommitBlockListAsync(blockIds);
-        //        _dataService.UpdateChunkStatusByFileName(chunk.FileName, Status.Finished.ToString());
-        //    }
+            //  Commit the blocks to blob
+            if (blockBlobClient != null)
+            {
+                var stagedBlockIds = _dataService.GetStagedBlockIds();
+                //unCommittedBlockIds.AddRange(blockIds);
+                Console.WriteLine($"After - {blockIds.Count()}");
+                Console.WriteLine("Commiting blocks...");
+                await blockBlobClient.CommitBlockListAsync(blockIds);
+                _dataService.UpdateChunkStatusByFileName(chunk.FileName, Status.Finished.ToString());
+            }
 
-        //    semaphoreSlim.Release();
-        //}
+            semaphoreSlim.Release();
+        }
     }
 
     private async Task StageBlocksAsync(BlockBlobClient blockBlobClient, FileMetadata fileMetadata,

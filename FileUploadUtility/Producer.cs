@@ -21,87 +21,86 @@ public class Producer
 
     public async Task Start()
     {
+        // Get file metadata for resuming chunking
+        var resumeChunking = _dataService.GetFileMetadataToChunk();
+
         // A timer that puts chunks in to queue after every 10 second
-        int delayMilliseconds = 3000;
-        TimerCallback timerCallback = new TimerCallback(AddPendingChunksToQueue);
-        Timer timer = new Timer(timerCallback.Invoke, null, 0, delayMilliseconds);
+        var delayMilliseconds = 2000;
+        var timerCallback = new TimerCallback(AddPendingChunksToQueue);
+        var timer = new Timer(timerCallback.Invoke, null, 0, delayMilliseconds);
 
         // Set the chunk size to 8MB
         var chunkSizeInBytes = int.Parse(_configuration.GetRequiredSection("ChunkSizeInBytes").Value!) * 1024 * 1024;
 
+        // Set the maximum degree of parallelism to 4
         var options = new ParallelOptions
         {
-            MaxDegreeOfParallelism = 4
+            MaxDegreeOfParallelism = 4  
         };
-
+        
+        // Iterate over files in parallel   
         await Parallel.ForEachAsync(
             _files.Select((file, i) => (Value: file, Index: i)), options,
             async (file, cancellationToken) =>
             {
-                try
+                if (resumeChunking.Any(x => x.FilePath == file.Value.FullName && x.IsEndOfFile == 1))
                 {
-                    var fileId = Guid.NewGuid().ToString();
-
-                    await using var fileStream = new FileStream(file.Value.FullName, FileMode.Open, FileAccess.Read);
+                    // Skip processing if complete file is chunked
+                    return;
+                }
+                else
+                    try
                     {
-                        //  Calculate number of chunks
-                        int numberOfChunks = (int)Math.Ceiling((double)fileStream.Length / chunkSizeInBytes);
+                        // Get last created chunk for the file
+                        var lastCreatedChunk = resumeChunking.ToList().Where(x => x.FilePath == file.Value.FullName);
 
-                        //  Create a buffer for each chunk
-                        var buffer = new byte[chunkSizeInBytes];
-                        long bytesRead;
-                        long offset = 0;
-                        bool endOfFile = false;
+                        // Generate a unique file id if no chunks have been created for the file
+                        var fileId = lastCreatedChunk.Any()
+                            ? lastCreatedChunk.First().FileId
+                            : Guid.NewGuid().ToString();
 
-                        for (var i = 0; i < numberOfChunks; i++)
+                        await using var fileStream =
+                            new FileStream(file.Value.FullName, FileMode.Open, FileAccess.Read);
                         {
-                            endOfFile = i == numberOfChunks - 1;
-                            bytesRead = await fileStream.ReadAsync(buffer, cancellationToken);
+                            //  Calculate number of chunks
+                            var numberOfChunks = (int)Math.Ceiling((double)fileStream.Length / chunkSizeInBytes);
 
-                            var fileMetadata = new FileMetadata(buffer, offset, bytesRead,
-                            Status.Pending.ToString(), i, fileId, file.Value.Name, file.Value.FullName, endOfFile, string.Empty);
+                            //  Create a buffer for each chunk
+                            var buffer = new byte[chunkSizeInBytes];
 
-                            _dataService.InsertFileMetadata(fileMetadata);
-                            offset += bytesRead;
+                            var startingPoint = 0;
+                            long offset = 0;
+                            if (lastCreatedChunk.Any())
+                            {
+                                // Set the stream position to the start of the next chunk
+                                fileStream.Seek(lastCreatedChunk.First().NumberOfChunks * chunkSizeInBytes,
+                                    SeekOrigin.Begin);
+                                startingPoint = lastCreatedChunk.First().NumberOfChunks;
+                                offset = lastCreatedChunk.First().NumberOfChunks * chunkSizeInBytes;
+                            }
+
+                            for (var i = startingPoint; i < numberOfChunks; i++)
+                            {
+                                var endOfFile = i == numberOfChunks - 1;
+                                long bytesRead = await fileStream.ReadAsync(buffer, cancellationToken);
+
+                                var fileMetadata = new FileMetadata(buffer, offset, bytesRead,
+                                    Status.Pending.ToString(), i, fileId, file.Value.Name, file.Value.FullName,
+                                    endOfFile,
+                                    string.Empty, numberOfChunks);
+
+                                _dataService.InsertFileMetadata(fileMetadata);
+                                offset += bytesRead;
+                            }
                         }
                     }
-                }
-                catch (Exception ex)
-                {
-                    Console.WriteLine(ex);
-                    throw;
-                }
+                    catch (Exception ex)
+                    {
+                        Console.WriteLine(ex);
+                        throw;
+                    }
             }
         );
-
-        //_uploadQueue.CompleteAdding();
-
-        // foreach (var file in _files)
-        //     try
-        //     {
-        //         var chunks = _dataService.GetChunksByFileName(file.Name);
-        //         if (chunks.Any())
-        //             continue;
-        //         await using var fileStream = new FileStream(file.FullName, FileMode.Open, FileAccess.Read);
-        //
-        //         // Create a buffer for each chunk
-        //         var buffer = new byte[chunkSizeInBytes];
-        //         long bytesRead;
-        //         long offset = 0;
-        //
-        //         while ((bytesRead = await fileStream.ReadAsync(buffer)) > 0)
-        //         {
-        //             var chunk = new Chunk(buffer, offset, bytesRead, file.Name, Status.Pending.ToString(),
-        //                 string.Empty);
-        //             _dataService.InsertChunk(chunk);
-        //             offset += bytesRead;
-        //         }
-        //     }
-        //     catch (Exception ex)
-        //     {
-        //         Console.WriteLine($"Error reading file: {ex.Message}");
-        //     }
-        //
     }
 
     private void AddPendingChunksToQueue(object state)
@@ -111,9 +110,9 @@ public class Producer
         {
             var chunks = pendingChunks.OrderBy(fn => fn.Sequence).ToList();
             foreach (var chunk in chunks)
-            {
                 _uploadQueue.Add(chunk);
-            }
         }
+
+        Console.WriteLine("Adding chunks to queue");
     }
 }

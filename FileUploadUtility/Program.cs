@@ -21,15 +21,16 @@ public static class Program
         var producer = new Producer(files, configuration, dataService, uploadQueue);
         var producerTask = Task.Run(async () => { await producer.Start(); });
 
-        // Start consumer task
-        //var consumer = new Consumer(configuration, dataService, uploadQueue);
-        //var consumerTask = Task.Run(async () =>
-        //{
-        //    await Task.Delay(TimeSpan.FromSeconds(1));
-        //    await consumer.Start();
-        //});
+        //  Start consumer task
+        // var consumer = new Consumer(configuration, dataService, uploadQueue);
+        // var consumerTask = Task.Run(async () =>
+        // {
+        //     await Task.Delay(TimeSpan.FromSeconds(4));
+        //     await consumer.Start();
+        //     Console.WriteLine("Consumer started");
+        // });
 
-        Thread.Sleep(10000);
+        //Thread.Sleep(5000);
         await Task.WhenAll(producerTask);
         Console.WriteLine("File uploaded successfully!");
     }
